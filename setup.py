@@ -15,6 +15,7 @@ setup(
         'numpy',
         'pandas',
         'xarray',
+        'dask',
         'common',
         'xarray_extras',
     ],
