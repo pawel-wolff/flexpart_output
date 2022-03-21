@@ -8,9 +8,15 @@ from common import longitude
 import xarray_extras    # noqa
 
 
-PIXEL_AREA_0_1_DEG_URL = pkg_resources.resource_filename('fpout', 'resources/pixel_areas.nc')
-PIXEL_AREA_0_1_DEG_VAR = 'Pixel_area'
-_pixel_area = None
+PIXEL_AREA_005DEG_URL = pkg_resources.resource_filename('fpout', 'resources/pixel_areas_005deg.nc')
+PIXEL_AREA_005DEG_VAR = 'Pixel_area'
+# _pixel_area = None
+
+OROGRAPHY_BY_RESOL_ULR = {}
+OROGRAPHY_AVAIL_RESOL = {'1': 1, '05': .5, '025': 0.25}  # keep in decreasing order
+for resol in OROGRAPHY_AVAIL_RESOL:
+    OROGRAPHY_BY_RESOL_ULR[resol] = pkg_resources.resource_filename('fpout', f'resources/orography_{resol}deg.nc')
+_orography_by_resol = {}
 
 AIR_DENSITY_URL = pkg_resources.resource_filename('fpout', 'resources/vertical_profile_of_air_density.csv')
 
@@ -60,12 +66,22 @@ def _assign_extra_height_coords(ds):
 def _get_pixel_area():
     # TODO: manage it by caching
     # prepare Pixel_area data
-    global _pixel_area
-    if _pixel_area is None:
-        ds = xr.load_dataset(PIXEL_AREA_0_1_DEG_URL)
-        _pixel_area = ds[PIXEL_AREA_0_1_DEG_VAR].astype('f8') * 1e6
-        _pixel_area.attrs = dict(standard_name='pixel_area', units='m2')
+    # global _pixel_area
+    #if _pixel_area is None:
+    ds = xr.load_dataset(PIXEL_AREA_005DEG_URL)
+    _pixel_area = ds[PIXEL_AREA_005DEG_VAR]
     return _pixel_area
+
+
+def _get_orography(resol):
+    # TODO: manage it by caching
+    # prepare orography for a given resolution
+    global _orography_by_resol
+    if resol not in _orography_by_resol:
+        if resol not in OROGRAPHY_AVAIL_RESOL:
+            raise ValueError(f'resol={resol} is not available; use one of {OROGRAPHY_AVAIL_RESOL}')
+        _orography_by_resol[resol] = xr.load_dataset(OROGRAPHY_BY_RESOL_ULR[resol])['ORO']
+    return _orography_by_resol[resol]
 
 
 def _rt_transform_by_air_density(rt, oro):
@@ -76,13 +92,28 @@ def _rt_transform_by_air_density(rt, oro):
     return rt
 
 
-def open_dataset(url, releases_position_coords=True, pixel_area=True, normalize_longitude=True, chunks='auto'):
+def open_dataset(url, releases_position_coords=True, pixel_area=True, normalize_longitude=True, generic_orography=True,
+                 chunks='auto'):
     ds = _open_dataset(url, releases_position_coords=releases_position_coords, pixel_area=pixel_area, chunks=chunks)
     ds = _assign_extra_height_coords(ds)
 
+    # normalize longitude
+    if normalize_longitude:
+        ds = ds.geo.normalize_longitude(keep_attrs=True)
+
     # set orography
-    ds[OROGRAPHY] = ds['ORO'].astype('f8')
-    ds = ds.set_coords(OROGRAPHY)
+    if generic_orography:
+        ds_lon = ds[ds.geo.get_lon_label()]
+        target_resol = float(abs(ds_lon[1] - ds_lon[0]))
+        for resol_str, resol in OROGRAPHY_AVAIL_RESOL.items():
+            if resol <= target_resol:
+                break
+        oro = _get_orography(resol_str).astype('f8')
+        oro = oro.geo_regrid.regrid_lon_lat(target_resol_ds=ds, method='linear',
+                                            longitude_circular=True, keep_attrs=True)
+    else:
+        oro = ds['ORO'].astype('f8')
+    ds = ds.assign_coords({OROGRAPHY: oro})
 
     # set residence time in [s]
     ind_source = int(ds.attrs['ind_source'])
@@ -92,14 +123,6 @@ def open_dataset(url, releases_position_coords=True, pixel_area=True, normalize_
         ds[RES_TIME] = _rt_transform_by_air_density(ds['spec001_mr'], ds[OROGRAPHY])
     elif ind_source == 2 and ind_receptor == 2:
         ds[RES_TIME] = ds['spec001_mr']
-
-    # set pixel area
-    if pixel_area:
-        ds = ds.set_coords('area')
-
-    # normalize longitude
-    if normalize_longitude:
-        ds = ds.geo.normalize_longitude(keep_attrs=True)
 
     return ds
 
@@ -119,9 +142,10 @@ def _open_dataset(url, index_releases_by_time=False, releases_position_coords=Tr
     if pixel_area:
         pixel_area_ds = _get_pixel_area().geo_regrid.regrid_lon_lat(target_resol_ds=ds, method='sum',
                                                                     longitude_circular=True, keep_attrs=True)
-        ds = ds.assign(area=pixel_area_ds)
+        ds = ds.assign_coords(area=pixel_area_ds)
         if ds['area'].isnull().any():
             raise ValueError(f'coordinates of {pixel_area_ds} and {ds} do not match')
+
     # ds = ds.assign(res_time=(ds['spec001_mr'] / ds['area'])) #.astype('f4')) #.persist()
     # ds['res_time'].attrs.update(units='s km-2')
     return ds
