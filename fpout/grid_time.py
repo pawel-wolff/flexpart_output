@@ -35,16 +35,30 @@ vertical_profile_of_air_density.name = 'air_density'
 vertical_profile_of_air_density.attrs = dict(long_name='air_density', units='kg m-3')
 
 
-def _assign_position_coords(ds, index_releases_by_time=False):
+def _assign_releases_position_coords(ds, index_releases_by_time=False):
     sim_end = np.datetime64(pd.Timestamp(ds.attrs['iedate'] + 'T' + ds.attrs['ietime']))
     rel_time_start = sim_end + xr.where(ds.RELSTART <= ds.RELEND, ds.RELSTART, ds.RELEND).compute()
     rel_time_end = sim_end + xr.where(ds.RELSTART > ds.RELEND, ds.RELSTART, ds.RELEND).compute()
     ds = ds.assign_coords({
-        'release_time': ('pointspec', (rel_time_start + (rel_time_end - rel_time_start) / 2).data),
-        'release_lon': ('pointspec', longitude.geodesic_longitude_midpoint(ds['RELLNG1'], ds['RELLNG2']).data),
-        'release_lat': ('pointspec', ((ds['RELLAT1'] + ds['RELLAT2']) / 2).data),
-        'release_pressure': ('pointspec', (100. * (ds['RELZZ1'] + ds['RELZZ2']) / 2).data),
-        'release_npart': ('pointspec', ds['RELPART'].data),
+        'release_time': ('pointspec', (rel_time_start + (rel_time_end - rel_time_start) / 2).data,
+                         {'long_name': 'release time',
+                          'description': 'time coordinate of the center of a release box'}),
+        'release_lon': ('pointspec', longitude.geodesic_longitude_midpoint(ds['RELLNG1'], ds['RELLNG2']).data,
+                        {'long_name': 'release longitude',
+                         'units': 'degrees_est',
+                         'description': 'longitude coordinate of the center of a release box'}),
+        'release_lat': ('pointspec', ((ds['RELLAT1'] + ds['RELLAT2']) / 2).data,
+                        {'long_name': 'release latitude',
+                         'units': 'degrees_nord',
+                         'description': 'longitude coordinate of the center of a release box'}),
+        'release_pressure': ('pointspec', (100. * (ds['RELZZ1'] + ds['RELZZ2']) / 2).data,
+                             {'long_name': 'release pressure',
+                              'units': 'Pa',
+                              'description': 'pressure coordinate of the center of a release box'}),
+        'release_npart': ('pointspec', ds['RELPART'].data,
+                          {'long_name': 'number of release particles',
+                           'units': '1',
+                           'description': 'number of particles released from a release box'}),
     })
     if index_releases_by_time:
         ds = ds.set_index({'pointspec': 'release_time'}).rename({'pointspec': 'release_time'})
@@ -52,13 +66,20 @@ def _assign_position_coords(ds, index_releases_by_time=False):
 
 
 def _assign_extra_height_coords(ds):
-    top_height = ds[HEIGHT_DIM].astype('f8')
+    height = ds[HEIGHT_DIM]
+    top_height = height.astype('f8').data
+    top_height_attrs = dict(height.attrs)
+    top_height_attrs.update({'long_name': 'top height above ground of a grid cell'})
+    bottom_height = np.concatenate(([0.], top_height[:-1]))
+    bottom_height_attrs = dict(height.attrs)
+    bottom_height_attrs.update({'long_name': 'bottom height above ground of a grid cell'})
+    delta_height_attrs = dict(height.attrs)
+    delta_height_attrs.update({'long_name': 'height of a grid cell'})
+
     ds = ds.assign_coords({
-        TOP_HEIGHT: top_height,
-        BOTTOM_HEIGHT: (HEIGHT_DIM, np.concatenate(([0.], top_height.data[:-1]))),
-    })
-    ds = ds.assign_coords({
-        DELTA_HEIGHT: ds[TOP_HEIGHT] - ds[BOTTOM_HEIGHT]
+        TOP_HEIGHT: (HEIGHT_DIM, top_height, top_height_attrs),
+        BOTTOM_HEIGHT: (HEIGHT_DIM, bottom_height, bottom_height_attrs),
+        DELTA_HEIGHT: (HEIGHT_DIM, top_height - bottom_height, delta_height_attrs),
     })
     return ds
 
@@ -92,9 +113,27 @@ def _rt_transform_by_air_density(rt, oro):
     return rt
 
 
-def open_dataset(url, releases_position_coords=True, pixel_area=True, normalize_longitude=True, generic_orography=True,
+def open_dataset(url,
+                 assign_releases_position_coords=True,
+                 pixel_area=True,
+                 normalize_longitude=True,
+                 generic_orography=True,
                  chunks='auto'):
-    ds = _open_dataset(url, releases_position_coords=releases_position_coords, pixel_area=pixel_area, chunks=chunks)
+    """
+    Open a dataset with FLEXPART output
+    :param url: path to Flexpart output dataset; must be in netcdf format and conform the Flexpart v10 output
+    :param assign_releases_position_coords: bool; if True, assign releases positions as auxiliary coordinates (
+    :param pixel_area:
+    :param normalize_longitude:
+    :param generic_orography:
+    :param chunks:
+    :return: xarray.Dataset
+    """
+    ds = _open_dataset(url,
+                       assign_releases_position_coords=assign_releases_position_coords,
+                       pixel_area=pixel_area,
+                       chunks=chunks)
+
     ds = _assign_extra_height_coords(ds)
 
     # normalize longitude
@@ -127,22 +166,41 @@ def open_dataset(url, releases_position_coords=True, pixel_area=True, normalize_
     return ds
 
 
-def open_fp_dataset(url, releases_position_coords=True, pixel_area=False, chunks='auto'):
+def open_fp_dataset(url, assign_releases_position_coords=True, pixel_area=False, chunks='auto'):
     warnings.warn('use open_dataset', FutureWarning)
-    return _open_dataset(url, index_releases_by_time=True,
-                         releases_position_coords=releases_position_coords, pixel_area=pixel_area, chunks=chunks)
+    return _open_dataset(url,
+                         assign_releases_position_coords=assign_releases_position_coords,
+                         index_releases_by_time=True,
+                         pixel_area=pixel_area,
+                         chunks=chunks)
 
 
-def _open_dataset(url, index_releases_by_time=False, releases_position_coords=True, pixel_area=True, chunks='auto'):
+def _open_dataset(url,
+                  assign_releases_position_coords=True,
+                  index_releases_by_time=False,
+                  pixel_area=True,
+                  chunks='auto'):
     ds = xarray_extras.open_dataset_with_disk_chunks(url, chunks=chunks)
+
+    backward_run = int(ds.attrs['ldirect']) == -1
+
+    ds['time'].attrs.update({
+        'standard_name': 'time',
+        'long_name': f'{"left" if backward_run else "right"} endpoint of a simulation time interval'
+    })
+
     if ds['spec001_mr'].dtype != 'f4':
         ds['spec001_mr'] = ds['spec001_mr'].astype('f4')
-    if releases_position_coords:
-        ds = _assign_position_coords(ds, index_releases_by_time=index_releases_by_time)
+    if assign_releases_position_coords:
+        ds = _assign_releases_position_coords(ds, index_releases_by_time=index_releases_by_time)
     if pixel_area:
         pixel_area_ds = _get_pixel_area().geo_regrid.regrid_lon_lat(target_resol_ds=ds, method='sum',
                                                                     longitude_circular=True, keep_attrs=True)
         ds = ds.assign_coords(area=pixel_area_ds)
+        ds['area'].attrs.update({
+            'standard_name': 'cell_area',
+            'long_name': 'horizontal area of a grid cell'
+        })
         if ds['area'].isnull().any():
             raise ValueError(f'coordinates of {pixel_area_ds} and {ds} do not match')
 
