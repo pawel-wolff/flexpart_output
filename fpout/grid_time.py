@@ -10,7 +10,7 @@ import xarray_extras    # noqa
 
 PIXEL_AREA_005DEG_URL = pkg_resources.resource_filename('fpout', 'resources/pixel_areas_005deg.nc')
 PIXEL_AREA_005DEG_VAR = 'Pixel_area'
-# _pixel_area = None
+_pixel_area = None
 
 OROGRAPHY_BY_RESOL_ULR = {}
 OROGRAPHY_AVAIL_RESOL = {'1': 1, '05': .5, '025': 0.25}  # keep in decreasing order
@@ -84,13 +84,13 @@ def _assign_extra_height_coords(ds):
     return ds
 
 
-def _get_pixel_area():
+def get_pixel_area():
     # TODO: manage it by caching
-    # prepare Pixel_area data
-    # global _pixel_area
-    #if _pixel_area is None:
-    ds = xr.load_dataset(PIXEL_AREA_005DEG_URL)
-    _pixel_area = ds[PIXEL_AREA_005DEG_VAR]
+    global _pixel_area
+    if _pixel_area is None:
+        # prepare Pixel_area data
+        ds = xr.load_dataset(PIXEL_AREA_005DEG_URL)
+        _pixel_area = ds[PIXEL_AREA_005DEG_VAR]
     return _pixel_area
 
 
@@ -166,21 +166,27 @@ def open_dataset(url,
     return ds
 
 
-def open_fp_dataset(url, assign_releases_position_coords=True, pixel_area=False, chunks='auto'):
+def open_fp_dataset(url, assign_releases_position_coords=True, pixel_area=False, chunks='auto', max_chunk_size=None):
     warnings.warn('use open_dataset', FutureWarning)
-    return _open_dataset(url,
-                         assign_releases_position_coords=assign_releases_position_coords,
-                         index_releases_by_time=True,
-                         pixel_area=pixel_area,
-                         chunks=chunks)
+    return _open_dataset(
+        url,
+        assign_releases_position_coords=assign_releases_position_coords,
+        index_releases_by_time=True,
+        pixel_area=pixel_area,
+        chunks=chunks,
+        max_chunk_size=max_chunk_size
+    )
 
 
-def _open_dataset(url,
-                  assign_releases_position_coords=True,
-                  index_releases_by_time=False,
-                  pixel_area=True,
-                  chunks='auto'):
-    ds = xarray_extras.open_dataset_with_disk_chunks(url, chunks=chunks)
+def _open_dataset(
+        url,
+        assign_releases_position_coords=True,
+        index_releases_by_time=False,
+        pixel_area=True,
+        chunks='auto',
+        max_chunk_size=None
+):
+    ds = xarray_extras.open_dataset_with_disk_chunks(url, chunks=chunks, max_chunk_size=max_chunk_size)
 
     backward_run = int(ds.attrs['ldirect']) == -1
 
@@ -194,8 +200,8 @@ def _open_dataset(url,
     if assign_releases_position_coords:
         ds = _assign_releases_position_coords(ds, index_releases_by_time=index_releases_by_time)
     if pixel_area:
-        pixel_area_ds = _get_pixel_area().geo_regrid.regrid_lon_lat(target_resol_ds=ds, method='sum',
-                                                                    longitude_circular=True, keep_attrs=True)
+        pixel_area_ds = get_pixel_area().geo_regrid.regrid_lon_lat(target_resol_ds=ds, method='sum',
+                                                                   longitude_circular=True, keep_attrs=True)
         ds = ds.assign_coords(area=pixel_area_ds)
         ds['area'].attrs.update({
             'standard_name': 'cell_area',
