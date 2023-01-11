@@ -113,12 +113,15 @@ def _rt_transform_by_air_density(rt, oro):
     return rt
 
 
-def open_dataset(url,
-                 assign_releases_position_coords=True,
-                 pixel_area=True,
-                 normalize_longitude=True,
-                 generic_orography=True,
-                 chunks='auto'):
+def open_dataset(
+        url,
+        assign_releases_position_coords=True,
+        pixel_area=True,
+        normalize_longitude=True,
+        generic_orography=True,
+        chunks='auto',
+        max_chunk_size=None,
+):
     """
     Open a dataset with FLEXPART output
     :param url: path to Flexpart output dataset; must be in netcdf format and conform the Flexpart v10 output
@@ -129,10 +132,13 @@ def open_dataset(url,
     :param chunks:
     :return: xarray.Dataset
     """
-    ds = _open_dataset(url,
-                       assign_releases_position_coords=assign_releases_position_coords,
-                       pixel_area=pixel_area,
-                       chunks=chunks)
+    ds = _open_dataset(
+        url,
+        assign_releases_position_coords=assign_releases_position_coords,
+        pixel_area=pixel_area,
+        chunks=chunks,
+        max_chunk_size=max_chunk_size,
+    )
 
     ds = _assign_extra_height_coords(ds)
 
