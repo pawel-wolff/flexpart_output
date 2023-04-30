@@ -192,7 +192,7 @@ def _open_dataset(
         chunks='auto',
         max_chunk_size=None
 ):
-    ds = xarray_extras.open_dataset_with_disk_chunks(url, chunks=chunks, max_chunk_size=max_chunk_size)
+    ds = xarray_extras.open_dataset_with_disk_chunks(url, chunks=chunks, max_chunk_size=max_chunk_size, engine='h5netcdf')
 
     backward_run = int(ds.attrs['ldirect']) == -1
 
