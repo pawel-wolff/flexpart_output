@@ -116,9 +116,11 @@ def _rt_transform_by_air_density(rt, oro):
 def open_dataset(
         url,
         assign_releases_position_coords=True,
+        index_releases_by_time=False,
         pixel_area=True,
         normalize_longitude=True,
         generic_orography=True,
+        res_time_in_sec=True,
         chunks='auto',
         max_chunk_size=None,
 ):
@@ -135,6 +137,7 @@ def open_dataset(
     ds = _open_dataset(
         url,
         assign_releases_position_coords=assign_releases_position_coords,
+        index_releases_by_time=index_releases_by_time,
         pixel_area=pixel_area,
         chunks=chunks,
         max_chunk_size=max_chunk_size,
@@ -160,14 +163,15 @@ def open_dataset(
         oro = ds['ORO'].astype('f8')
     ds = ds.assign_coords({OROGRAPHY: oro})
 
-    # set residence time in [s]
-    ind_source = int(ds.attrs['ind_source'])
-    ind_receptor = int(ds.attrs['ind_receptor'])
-    if ind_source == 1 and ind_receptor == 2:
-        # must change residence time units from 's m3 kg-1' to 's' by multiplying by air density at output grid cell
-        ds[RES_TIME] = _rt_transform_by_air_density(ds['spec001_mr'], ds[OROGRAPHY])
-    elif ind_source == 2 and ind_receptor == 2:
-        ds[RES_TIME] = ds['spec001_mr']
+    if res_time_in_sec:
+        # set residence time in [s]
+        ind_source = int(ds.attrs['ind_source'])
+        ind_receptor = int(ds.attrs['ind_receptor'])
+        if ind_source == 1 and ind_receptor == 2:
+            # must change residence time units from 's m3 kg-1' to 's' by multiplying by air density at output grid cell
+            ds[RES_TIME] = _rt_transform_by_air_density(ds['spec001_mr'], ds[OROGRAPHY])
+        elif ind_source == 2 and ind_receptor == 2:
+            ds[RES_TIME] = ds['spec001_mr']
 
     return ds
 
