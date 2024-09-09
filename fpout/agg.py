@@ -2,7 +2,7 @@ import pathlib
 import numpy as np
 import xarray as xr
 
-from grid_time import open_dataset
+from .grid_time import open_dataset
 
 
 def get_agg_footprint_data(fp_dir):
