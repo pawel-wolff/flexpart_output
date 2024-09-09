@@ -21,7 +21,7 @@ def get_agg_footprint_data(fp_dir):
 def save_agg_footprint_data(fp_dir, dest):
     ds = get_agg_footprint_data(fp_dir)
     dest_dir = pathlib.Path(dest).parent
-    dest_dir.mkdir(parent=True, exist_ok=True)
+    dest_dir.mkdir(parents=True, exist_ok=True)
     tmp_dest = str(dest) + '.tmp'
     ds.to_netcdf(tmp_dest, encoding={'res_time_per_km2': {'zlib': True, 'complevel': 4}})
     pathlib.Path(tmp_dest).rename(dest)
