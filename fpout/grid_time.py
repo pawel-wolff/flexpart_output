@@ -1,24 +1,17 @@
+import importlib.resources
+from functools import cache
 import warnings
-import pkg_resources
 import numpy as np
 import pandas as pd
 import xarray as xr
 
-from common import longitude
 import xarray_extras    # noqa
 
+from . import utils
 
-PIXEL_AREA_005DEG_URL = pkg_resources.resource_filename('fpout', 'resources/pixel_areas_005deg.nc')
-PIXEL_AREA_005DEG_VAR = 'Pixel_area'
-_pixel_area = None
 
-OROGRAPHY_BY_RESOL_ULR = {}
 OROGRAPHY_AVAIL_RESOL = {'1': 1, '05': .5, '025': 0.25}  # keep in decreasing order
-for resol in OROGRAPHY_AVAIL_RESOL:
-    OROGRAPHY_BY_RESOL_ULR[resol] = pkg_resources.resource_filename('fpout', f'resources/orography_{resol}deg.nc')
 _orography_by_resol = {}
-
-AIR_DENSITY_URL = pkg_resources.resource_filename('fpout', 'resources/vertical_profile_of_air_density.csv')
 
 HEIGHT_DIM = 'height'
 TOP_HEIGHT = 'top_height'
@@ -28,7 +21,9 @@ OROGRAPHY = 'orography'
 RES_TIME = 'res_time'
 
 # prepare mean air density
-vertical_profile_of_air_density = pd.read_csv(AIR_DENSITY_URL, index_col='height_in_m', dtype=np.float32)['density_in_kg_per_m3']
+_air_density_ref = importlib.resources.files('fpout.resources') / 'vertical_profile_of_air_density.csv'
+with importlib.resources.as_file(_air_density_ref) as _air_density_path:
+    vertical_profile_of_air_density = pd.read_csv(_air_density_path, index_col='height_in_m', dtype=np.float32)['density_in_kg_per_m3']
 vertical_profile_of_air_density = xr.DataArray.from_series(vertical_profile_of_air_density).rename({'height_in_m': 'height'})
 vertical_profile_of_air_density['height'] = vertical_profile_of_air_density.height.astype('f4')
 vertical_profile_of_air_density.name = 'air_density'
@@ -43,7 +38,7 @@ def _assign_releases_position_coords(ds, index_releases_by_time=False):
         'release_time': ('pointspec', (rel_time_start + (rel_time_end - rel_time_start) / 2).data,
                          {'long_name': 'release time',
                           'description': 'time coordinate of the center of a release box'}),
-        'release_lon': ('pointspec', longitude.geodesic_longitude_midpoint(ds['RELLNG1'], ds['RELLNG2']).data,
+        'release_lon': ('pointspec', utils.geodesic_longitude_midpoint(ds['RELLNG1'], ds['RELLNG2']).data,
                         {'long_name': 'release longitude',
                          'units': 'degrees_est',
                          'description': 'longitude coordinate of the center of a release box'}),
@@ -84,25 +79,24 @@ def _assign_extra_height_coords(ds):
     return ds
 
 
+@cache
 def get_pixel_area():
-    # TODO: manage it by caching
-    global _pixel_area
-    if _pixel_area is None:
-        # prepare Pixel_area data
-        ds = xr.load_dataset(PIXEL_AREA_005DEG_URL)
-        _pixel_area = ds[PIXEL_AREA_005DEG_VAR]
-    return _pixel_area
+    # prepare Pixel_area data
+    pixel_area_ref = importlib.resources.files('fpout.resources') / 'pixel_areas_005deg.nc'
+    with importlib.resources.as_file(pixel_area_ref) as pixel_area_path:
+        return xr.load_dataset(pixel_area_path)['Pixel_area']
 
 
+@cache
 def _get_orography(resol):
-    # TODO: manage it by caching
     # prepare orography for a given resolution
-    global _orography_by_resol
-    if resol not in _orography_by_resol:
-        if resol not in OROGRAPHY_AVAIL_RESOL:
-            raise ValueError(f'resol={resol} is not available; use one of {OROGRAPHY_AVAIL_RESOL}')
-        _orography_by_resol[resol] = xr.load_dataset(OROGRAPHY_BY_RESOL_ULR[resol])['ORO']
-    return _orography_by_resol[resol]
+    try:
+        resol_as_str = OROGRAPHY_AVAIL_RESOL[resol]
+    except KeyError:
+        raise ValueError(f'resol={resol} is not available; use one of {OROGRAPHY_AVAIL_RESOL}')
+    orography_ref = importlib.resources.files('fpout.resources') / f'orography_{resol_as_str}deg.nc'
+    with importlib.resources.as_file(orography_ref) as orography_path:
+        return xr.load_dataset(orography_path)['ORO']
 
 
 def _rt_transform_by_air_density(rt, oro):
