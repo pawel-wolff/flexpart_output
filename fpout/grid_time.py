@@ -7,7 +7,7 @@ import xarray as xr
 
 import xarray_extras    # noqa
 
-from . import utils
+from . import utils, resources
 
 
 OROGRAPHY_AVAIL_RESOL = {'1': 1, '05': .5, '025': 0.25}  # keep in decreasing order
@@ -21,7 +21,7 @@ OROGRAPHY = 'orography'
 RES_TIME = 'res_time'
 
 # prepare mean air density
-_air_density_ref = importlib.resources.files('fpout.resources') / 'vertical_profile_of_air_density.csv'
+_air_density_ref = importlib.resources.files(resources) / 'vertical_profile_of_air_density.csv'
 with importlib.resources.as_file(_air_density_ref) as _air_density_path:
     vertical_profile_of_air_density = pd.read_csv(_air_density_path, index_col='height_in_m', dtype=np.float32)['density_in_kg_per_m3']
 vertical_profile_of_air_density = xr.DataArray.from_series(vertical_profile_of_air_density).rename({'height_in_m': 'height'})
@@ -82,7 +82,7 @@ def _assign_extra_height_coords(ds):
 @cache
 def get_pixel_area():
     # prepare Pixel_area data
-    pixel_area_ref = importlib.resources.files('fpout.resources') / 'pixel_areas_005deg.nc'
+    pixel_area_ref = importlib.resources.files(resources) / 'pixel_areas_005deg.nc'
     with importlib.resources.as_file(pixel_area_ref) as pixel_area_path:
         return xr.load_dataset(pixel_area_path)['Pixel_area']
 
@@ -94,7 +94,7 @@ def _get_orography(resol):
         resol_as_str = OROGRAPHY_AVAIL_RESOL[resol]
     except KeyError:
         raise ValueError(f'resol={resol} is not available; use one of {OROGRAPHY_AVAIL_RESOL}')
-    orography_ref = importlib.resources.files('fpout.resources') / f'orography_{resol_as_str}deg.nc'
+    orography_ref = importlib.resources.files(resources) / f'orography_{resol_as_str}deg.nc'
     with importlib.resources.as_file(orography_ref) as orography_path:
         return xr.load_dataset(orography_path)['ORO']
 
