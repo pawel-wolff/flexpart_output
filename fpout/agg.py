@@ -14,6 +14,7 @@ def get_agg_footprint_data(fp_dir):
         res_time = da2.sum(['height', 'time'])
         res_time_per_km2 = res_time / res_time['area'] * 1e6
         res_time_per_km2 = res_time_per_km2.astype('f4').compute()
+        res_time_per_km2.attrs['units'] = 's km-2'
         ds = xr.Dataset(data_vars={'res_time_per_km2': res_time_per_km2})
         return ds
 
